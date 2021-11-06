@@ -1,0 +1,31 @@
+---
+title: "ex-2 Nurit Edri"
+author: "Nurit Edri"
+date: "11/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(compGenomRData)
+```
+
+
+```{r}
+counts_file <- system.file("extdata/rna-seq/SRP029880.raw_counts.tsv",
+package = "compGenomRData")
+coldata_file <- system.file("extdata/rna-seq/SRP029880.colData.tsv",
+package = "compGenomRData")
+
+```
+
+```{r}
+counts_df=read.table(counts_file,header = TRUE,sep = "\t")
+view(counts_df)
+counts_mat=as.matrix(counts_df)
+genelenght_mat=subset(counts_mat,select=c(width))
+```
+
