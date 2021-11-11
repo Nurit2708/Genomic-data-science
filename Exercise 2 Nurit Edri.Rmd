@@ -23,9 +23,119 @@ package = "compGenomRData")
 ```
 
 ```{r}
-counts_df=read.table(counts_file,header = TRUE,sep = "\t")
-view(counts_df)
-counts_mat=as.matrix(counts_df)
-genelenght_mat=subset(counts_mat,select=c(width))
+##1. Normalize counts
+
+counts_df = read.table(counts_file,header = TRUE,sep = "\t")
+View (counts_df)
+counts_mat =as.matrix(counts_df)
+genelenght_mat =subset(counts_mat,select=c(width))
+geneLengths_vector <- as.vector(genelenght_mat)
+
+rpkm <- apply(X = subset(counts_mat, select = c(-width)),
+              MARGIN = 2,
+              FUN = function(x) {
+              (x * 10^9) / (geneLengths_vector * sum(as.numeric(x)))
+              })
+tpm <- apply(rpkm, 2, function(x) {(x / sum(as.numeric(x))) * 10^6})
+
+
+tpm <- apply(rpkm, 2, function(x) {(x / sum(as.numeric(x))) * 10^6})
+
+colSums(tpm)
+```
+```{r}
+##2. Plot a heatmap of the top 500 most variable genes. 
+
+###compute the variance of each gene across samples
+
+V <- apply(tpm, 1, var)
+
+### sort the results by variance in decreasing order
+### and select the top 500 genes
+
+selectedGenes <- names(V[order(V, decreasing = T)][1:500])
+library(pheatmap)
+pheatmap(tpm[selectedGenes,], scale = 'row',show_rownames = FALSE)
+```
+
+
+```{r}
+## Compare with the heatmap obtained using the 100 most variable genes.
+
+selectedGenes100 <- names(V[order(V, decreasing = T)][1:100])
+pheatmap(tpm[selectedGenes100,], scale = 'row',show_rownames = FALSE)
+```
+```{r}
+## 3. Re-do the heatmaps setting the scale argument to none.
+
+pheatmap(tpm[selectedGenes,], scale = 'none',show_rownames = FALSE)
+pheatmap(tpm[selectedGenes100,], scale = 'none',show_rownames = FALSE)
+```
+```{r}
+## Re-do the heatmaps setting the scale argument to column
+
+pheatmap(tpm[selectedGenes,], scale = 'column',show_rownames = FALSE)
+pheatmap(tpm[selectedGenes100,], scale = 'column',show_rownames = FALSE)
+```
+
+
+
+```{r}
+## 4. Draw a correlation plot for the samples.
+
+library(stats)
+correlationMatrix <- cor(tpm)
+
+library(corrplot)
+corrplot(correlationMatrix, order = 'hclust',
+addrect = 2, addCoef.col = 'white',
+number.cex = 0.7)
+
+```
+```{r}
+## 5. Try selecting the top 100 genes that have the highest total expression in all samples and re-draw the cluster heatmaps.
+
+genetotalexp = rowSums(tpm)
+selectedGenes <- names(genetotalexp[order(genetotalexp, decreasing = T)][1:100])
+pheatmap(tpm[selectedGenes,], scale = 'row',show_rownames = FALSE)
+
+```
+```{r}
+## Drew PCA plot
+
+library(ggplot2)
+library(ggfortify)
+
+### transpose the matrix
+M <- t(tpm[selectedGenes,])
+### transform the counts to log2 scale
+M <- log2(M + 1)
+### compute PCA
+pcaResults <- prcomp(M)
+### plot PCA results making use of ggplot2's autoplot function
+### ggfortify is needed to let ggplot2 know about PCA data structure.
+autoplot(pcaResults)
+```
+```{r}
+## 6. Add an additional column to the annotation data.frame object to annotate the samples and use the updated annotation data.frame to plot the heatmaps.
+
+colData <- read.table(coldata_file, header = T, sep = '\t',
+stringsAsFactors = TRUE)
+
+pheatmap(tpm[selectedGenes,], scale = 'row',show_rownames = FALSE,
+annotation_col = colData)
+```
+
+
+```{r}
+## Make a PCA plot and color samples by the added variable.
+
+autoplot(pcaResults, data = colData, colour = 'group')
+```
+```{r}
+## 7. Try making the heatmaps using all the genes in the count table, rather than sub-selecting.
+
+### pheatmap(tpm, scale = 'row',show_rownames = FALSE,clustering_method ="complete")
+
 ```
 
