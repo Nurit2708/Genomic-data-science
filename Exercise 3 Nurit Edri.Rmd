@@ -1,0 +1,196 @@
+---
+title: "Ex3_Nurit Edri"
+author: "Nurit Edri"
+date: "11/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(compGenomRData)
+library(DESeq2)
+library(ggplot2)
+library(edgeR)
+library(compcodeR)
+
+counts_file <- system.file("extdata/rna-seq/SRP029880.raw_counts.tsv",
+package = "compGenomRData")
+coldata_file <- system.file("extdata/rna-seq/SRP029880.colData.tsv",
+package = "compGenomRData")
+
+counts <- read.table(counts_file, header = T, sep = '\t')
+#remove the 'width' column
+countData <- as.matrix(subset(counts, select = c(-width)))
+
+colData <- read.table(coldata_file, header = T, sep = '\t',
+                      stringsAsFactors = TRUE) 
+
+
+# Set up a DESeqDataSet object.
+#create a DESeq dataset object from the count matrix and the colData
+
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData,
+                              design = ~ group)
+print(dds)
+
+```
+
+
+```{r}
+#Filter out genes with low counts.
+filteration <- rowSums(DESeq2::counts(dds)) >= 10
+
+dds <- dds[filteration, ]
+dds <- DESeq(dds)
+
+#Run DESeq2 contrasting the CASE sample with CONTROL samples
+DEresults = results(dds, contrast = c("group", 'CASE', 'CTRL'))
+DEresultsDf <-as.data.frame(DEresults)
+
+```
+
+```{r}
+#2. Use DESeq2::plotDispEsts to make a dispersion plot
+
+DESeq2::plotDispEsts(dds)
+```
+
+
+```{r}
+#3. Explore lfcThreshold argument of the DESeq2::results function.
+#The default value of the argument is zero.
+
+desresults = DESeq2::results(dds)
+print(desresults)
+
+```
+
+```{r}
+desresults1 = DESeq2::results(dds,lfcThreshold = 1)
+print(desresults1)
+```
+
+```{r}
+#4. What is independent filtering?
+#Filtering out genes with low read counts.
+#What happens if we don’t use it?
+#We are increasing the probability of false positive results.
+
+
+#5. Re-do the differential expression analysis using the edgeR package.
+
+dgList <- DGEList(counts=countData, genes=rownames(countData))
+countsPerMillion <- cpm(dgList)
+
+countCheck <- countsPerMillion > 1
+keep <- which(rowSums(countCheck) >= 2)
+dgList <- dgList[keep,]
+dgList <- calcNormFactors(dgList, method="TMM")
+
+sampleType<- rep("CTRL", ncol(dgList)) 
+sampleType[grep("CASE", colnames(dgList))] <- "CASE"
+
+sampleReplicate <- paste("S", rep(1:5, each=2), sep="")
+designMat <- model.matrix(~sampleReplicate + sampleType)
+
+dgList <- estimateGLMCommonDisp(dgList, design=designMat)
+dgList <- estimateGLMTrendedDisp(dgList, design=designMat)
+dgList <- estimateGLMTagwiseDisp(dgList, design=designMat)
+
+#plotBCV(dgList)
+
+fit <- glmFit(dgList, designMat)
+lrt <- glmLRT(fit, coef=4)
+edgeR_result <- topTags(lrt)
+
+
+
+```
+
+```{r}
+#Find out how much DESeq2 and edgeR agree on the list of differentially expressed genes.
+# Data from each analysis represented as a volcano plot.
+ggplot()+
+  geom_point(data = DEresultsDf, 
+             mapping = aes(x = log2FoldChange, y = -log10(pvalue)), 
+             col = "grey80", size =1) +
+  geom_point(data = subset(DEresultsDf, log2FoldChange > 1 & pvalue < 0.05), 
+             aes(log2FoldChange, -log10(pvalue)), color = "red", size =1)+
+  geom_point(data = subset(DEresultsDf, log2FoldChange < 1 & pvalue < 0.05), 
+             aes(log2FoldChange, -log10(pvalue)), color = "steelblue2", size =1)+
+  theme_bw()+
+  theme(legend.title =element_blank())+
+  labs(x = "log2 (Fold change of case vs. control)", y= "-log10(P-value)")
+
+
+
+lrtDf <-as.data.frame(lrt)
+
+ggplot()+
+  geom_point(data = lrtDf, 
+             mapping = aes(x = logFC, y = -log10(PValue)), 
+             col = "grey80", size =1) +
+  geom_point(data = subset(lrtDf, logFC > 1 & PValue < 0.05), 
+             aes(logFC, -log10(PValue)), color = "red", size =1)+
+  geom_point(data = subset(lrtDf, logFC < 1 & PValue < 0.05), 
+             aes(logFC, -log10(PValue)), color = "steelblue2", size =1)+
+  theme_bw()+
+  theme(legend.title =element_blank())+
+  labs(x = "log2 (Fold change of case vs. control)", y= "-log10(P-value)")
+
+```
+```{r}
+#6. Use the compcodeR package to run the differential expression analysis using at least three different tools and compare and contrast the results following the compcodeR vignette.
+
+#Creating simulated data set
+
+compcode_simulatingdata <- generateSyntheticData(dataset = "countdata", n.vars = 12500, 
+                                   samples.per.cond = 5, n.diffexp = 1250, 
+                                   repl.id = 1, seqdepth = 1e7, 
+                                   fraction.upregulated = 0.5, 
+                                   between.group.diffdisp = FALSE, 
+                                   filter.threshold.total = 1, 
+                                   filter.threshold.mediancpm = 0, 
+                                   fraction.non.overdispersed = 0, 
+                                   output.file = "compcode_simulatingdata.rds")
+
+summarizeSyntheticDataSet(data.set = "compcode_simulatingdata.rds", 
+                          output.filename = "compcode_simulatingdata_datacheck.html")
+
+#Performing differential expression analysis
+
+options(encoding = "UTF-8")
+runDiffExp(data.file = "compcode_simulatingdata.rds", 
+           result.extent = "voom.limma", Rmdfunction = "voom.limma.createRmd", 
+           output.directory = ".", norm.method = "TMM")
+runDiffExp(data.file = "compcode_simulatingdata.rds", 
+           result.extent = "edgeR.exact", Rmdfunction = "edgeR.exact.createRmd", 
+           output.directory = ".", norm.method = "TMM", 
+           trend.method = "movingave", disp.type = "tagwise")
+runDiffExp(data.file = "compcode_simulatingdata.rds", result.extent = "DESeq2", 
+           Rmdfunction = "DESeq2.createRmd", 
+           output.directory = ".", fit.type = "parametric", 
+           test = "Wald", beta.prior = TRUE, 
+           independent.filtering = TRUE, cooks.cutoff = TRUE, 
+           impute.outliers = TRUE)
+
+#Comparing results from several differential expression methods
+
+file.table <- data.frame(input.files = c("compcode_simulatingdata_voom.limma.rds", 
+                                         "compcode_simulatingdata_edgeR.exact.rds", 
+                                         "compcode_simulatingdata_DESeq2.rds"), 
+                         stringsAsFactors = FALSE)
+parameters <- list(incl.nbr.samples = NULL, incl.replicates = NULL, 
+                   incl.dataset = "countdata", incl.de.methods = NULL, 
+                   fdr.threshold = 0.05, tpr.threshold = 0.05, 
+                   typeI.threshold = 0.05, ma.threshold = 0.05, 
+                   fdc.maxvar = 1500, overlap.threshold = 0.05, 
+                   fracsign.threshold = 0.05, 
+                   comparisons = c("auc", "fdr", "tpr", "ma", "correlation"))
+runComparison(file.table = file.table, parameters = parameters, output.directory = ".")
+```
+
