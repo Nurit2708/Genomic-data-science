@@ -1,0 +1,118 @@
+---
+title: "Untitled"
+author: "Nurit Edri"
+date: "1/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+######## Adapted from Depmap vignette and "Exploiting Depmap cancer dependency data using the depmap R package" by Theo Killian and Laurent Gatto
+
+Depmap, A "cancer dependency map", represents the "landscape" of *in-vitro* characterization of cancer cell lines (~1700). It provides exploring data of cancer dependencies from large-scale RNAi and CRISPR-Cas9 screens. These RNAi and CRISPR-Cas9 experiments aimed to identify genes essential for cancer cell proliferation/survival. The gene's essentiality across the different cell lines is represented as a dependency score. A lower score that a cell line is highly dependent (essential) on that gene.
+
+
+*depmap* package in R imports Depmap data into:
+
+* “rnai” (RNAi genetic dependency)
+
+* “crispr” (CRISPR genetic dependency)
+
+* “copyNumber” (log fold copy number)
+
+* “TPM” (protein-coding expression)
+
+* “RPPA” (Reverse Phase Protein Array)
+
+* “mutationCalls” (mutation calls)
+
+* “drug_sensitivity” (chemical dependency)
+
+* “metadata” (metadata about all cancer cell lines)
+
+```{r}
+# Load packages
+# Please install missing packages if needed
+
+library("dplyr")
+library("ggplot2")
+library("viridis")
+library("tibble")
+library("gridExtra")
+library("stringr")
+library("depmap")
+library("ExperimentHub")
+```
+
+Depmap data stored in the cloud via ExperimentHub. ExperimentHub is a Bioconductor's service which stores records from experiments, publications or training courses. 
+
+We can access Depmap data using *ExperimentHub* package or directly by using *depmap* package.
+
+```{r}
+# An example for accessing Depmap data using *ExperimentHub* package 
+
+eh <- ExperimentHub()
+query(eh, "depmap")
+
+rnai <- eh[["EH3080"]]
+crispr <- eh[["EH3081"]]
+mutationCalls <- eh[["EH3085"]]
+metadata <- eh[["EH3086"]]
+TPM <- eh[["EH3084"]]
+copyNumber <- eh[["EH3082"]]
+drug_sensitivity_eh <- eh[["EH3087"]]
+```
+
+### Mining, manipulation and visualization
+
+For data manipulation we will use *dplyr* package:
+
+*`mutate()` adds new variables that are functions of existing variables
+
+*`select()` picks variables based on their names.
+
+*`filter()` picks cases based on their values.
+
+*`summarise()` reduces multiple values down to a single summary.
+
+*`arrange()` changes the ordering of the rows.
+
+
+
+### Home work
+1. Make a scatter plot of expression vs rnai gene dependency for Rhabdomyosarcoma Sarcoma.
+
+```{r}
+
+TPM_rnai <- metadata  %>%
+              dplyr::select(depmap_id, lineage) %>%
+              dplyr::full_join(rnai , by = "depmap_id") %>%
+  dplyr::filter(lineage == "rhabdomyosarcoma" , gene_name == "RPL14")  %>%
+  dplyr::full_join(TPM %>% dplyr::select(depmap_id, expression), by = "depmap_id") %>%
+  dplyr::filter(lineage == "rhabdomyosarcoma" , gene_name == "RPL14")  
+              
+p2 <- TPM_rnai %>%
+      ggplot(aes(x = expression, y = dependency)) +
+      geom_point(alpha = 0.4, size = 0.5)
+p2
+             
+```
+
+2. Make a boxplot displaying log genomic copy number for gene RPL14 by lineage
+
+```{r}
+
+metadata %>% dplyr::select(depmap_id, lineage) %>%
+              dplyr::full_join(copyNumber, by = "depmap_id") %>%
+              dplyr::filter(gene_name == "RPL14") %>%
+              ggplot(aes(x = lineage, y = log_copy_number, fill = lineage)) +
+        geom_boxplot(outlier.alpha = 0.1) +
+        ggtitle("Boxplot of log genomic copy number values for gene RPL14 by lineage") +
+        theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+        theme(legend.position = "none")
+
+
+
+```
