@@ -1,0 +1,174 @@
+---
+title: "Functional Pseudotime Analysis"
+output: html_document
+---
+
+
+## Load settings and packages
+
+```{r setup_pseudotime}
+
+library(SingleCellExperiment)
+library(destiny)
+library(scater)
+library(ggplot2)
+library(ggthemes) 
+library(ggbeeswarm) 
+library(dplyr)
+library(cowplot)
+library(knitr)
+
+set.seed(1)  # set a seed for your random number generator to get reproducible results 
+opts_chunk$set(fig.align = "center")
+```
+
+
+
+```{r pca_pseudotime}
+# Read in single cell data.
+path.deng <- c("C:/Users/nurit/OneDrive/קורסים/Genomic data science/Github/Lecture-4-11/deng-reads.rds")
+
+deng_SCE <- readRDS(path.deng)
+
+
+# How many mouse cells are at each stage?
+table(deng_SCE$cell_type2)
+
+# Re-order the levels of the factor storing the cell developmental stage.
+deng_SCE$cell_type2 <- factor(deng_SCE$cell_type2,
+                              levels = c("zy", "early2cell", "mid2cell", "late2cell", 
+                                         "4cell", "8cell", "16cell", "earlyblast", "midblast",
+                                         "lateblast"))
+
+# Run PCA on Deng data. Use the runPCA function from the SingleCellExperiment package.
+deng_SCE <- runPCA(deng_SCE, ncomponents = 50) # ncomponents is a numeric scalar indicating the number of principal components to obtain.
+
+# Use the reducedDim function to access the PCA and store the results. 
+pca <- reducedDim(deng_SCE, "PCA")
+
+# Describe how the PCA is stored in a matrix. Why does it have this structure?
+head(pca)
+dim(pca)
+
+# Add PCA data to the deng_SCE object.
+deng_SCE$PC1 <- pca[, 1]
+deng_SCE$PC2 <- pca[, 2]
+
+# Plot PC biplot with cells colored by cell_type2. 
+# colData(deng_SCE) accesses the cell metadata DataFrame object for deng_SCE.
+# Look at Figure 1A of the paper as a comparison to your PC biplot.
+
+ggplot(as.data.frame(colData(deng_SCE)), aes(x = PC1, y = PC2, color = cell_type2)) + geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau() + theme_classic() +
+    xlab("PC1") + ylab("PC2") + ggtitle("PC biplot")
+
+
+```
+
+
+```{r diffusion_pseudotime}
+#  Prepare a counts matrix with labeled rows and columns. 
+
+deng <- logcounts(deng_SCE)  # access log-transformed counts matrix
+cellLabels <- deng_SCE$cell_type2
+colnames(deng) <- cellLabels
+
+# Make a diffusion map.
+dm <- DiffusionMap(t(deng))
+
+# Plot diffusion component 1 vs diffusion component 2 (DC1 vs DC2). 
+tmp <- data.frame(DC1 = eigenvectors(dm)[, 1],
+                  DC2 = eigenvectors(dm)[, 2],
+                  Timepoint = deng_SCE$cell_type2)
+ggplot(tmp, aes(x = DC1, y = DC2, colour = Timepoint)) +
+    geom_point() + scale_color_tableau() + 
+    xlab("Diffusion component 1") + 
+    ylab("Diffusion component 2") +
+    theme_classic()
+
+# Next, let us use the first diffusion component (DC1) as a measure of pseudotime.
+# How does the separation by cell stage look?
+
+deng_SCE$pseudotime_diffusionmap <- rank(eigenvectors(dm)[,1])    # rank cells by their dpt
+ggplot(as.data.frame(colData(deng_SCE)), 
+       aes(x = pseudotime_diffusionmap, 
+           y = cell_type2, colour = cell_type2)) +
+    geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau() + theme_classic() +
+    xlab("Diffusion component 1 (DC1)") + ylab("Timepoint") +
+    ggtitle("Cells ordered by DC1")
+
+# Diffusion pseudotime calculation. 
+# Set index or tip of pseudotime calculation to be a zygotic cell (cell 268). 
+rownames(pca) <- cellLabels
+dm <- DiffusionMap(pca)
+dpt <- DPT(dm, tips = 268) # DPT() creates pseudotime ordering and assigns cell to one of three branches
+
+# Plot diffusion pseudotime vs timepoint. 
+# Which separates the data better, DC1 or diffusion pseudotime?
+deng_SCE$pseudotime_dpt <- rank(dpt$dpt) 
+ggplot(as.data.frame(colData(deng_SCE)), 
+       aes(x = pseudotime_dpt, 
+           y = cell_type2, colour = cell_type2)) +
+    geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau() + theme_classic() +
+    xlab("Diffusion map pseudotime (dpt)") +
+    ylab("Timepoint") +
+    ggtitle("Cells ordered by diffusion map pseudotime")
+
+```
+
+
+
+# Homework
+1.  Try separating the cell types using other PCs. How does the separation look?
+```{r}
+
+deng_SCE$PC3 <- pca[, 3]
+deng_SCE$PC4 <- pca[, 4]
+
+ggplot(as.data.frame(colData(deng_SCE)), aes(x = PC3, y = PC4, color = cell_type2)) + geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau() + theme_classic() +
+    xlab("PC3") + ylab("PC4") + ggtitle("PC biplot")
+
+```
+
+2. Try different sigma values when making diffusion map.
+```{r}
+dm <- DiffusionMap(t(deng), sigma = "local")  # use local option to set sigma
+
+tmp <- data.frame(DC1 = eigenvectors(dm)[, 1],
+                  DC2 = eigenvectors(dm)[, 2],
+                  Timepoint = deng_SCE$cell_type2)
+ggplot(tmp, aes(x = DC1, y = DC2, colour = Timepoint)) +
+    geom_point() + scale_color_tableau() + 
+    xlab("Diffusion component 1") + 
+    ylab("Diffusion component 2") +
+    theme_classic()
+```
+
+```{r}
+
+sigmas <- find_sigmas(t(deng), verbose = FALSE)  # find optimal sigma
+dm1 <- DiffusionMap(t(deng), sigma = optimal_sigma(sigmas)) 
+
+tmp <- data.frame(DC1 = eigenvectors(dm1)[, 1],
+                  DC2 = eigenvectors(dm1)[, 2],
+                  Timepoint = deng_SCE$cell_type2)
+ggplot(tmp, aes(x = DC1, y = DC2, colour = Timepoint)) +
+    geom_point() + scale_color_tableau() + 
+    xlab("Diffusion component 1") + 
+    ylab("Diffusion component 2") +
+    theme_classic()
+
+```
+
+
+
+### Refernces
+
+1. This document builds off chapter 8.4 from the [Hemberg lab single cell RNA-seq course](http://hemberg-lab.github.io/scRNA.seq.course/biological-analysis.html#pseudotime-analysis), from the [Destiny vignette](https://bioconductor.org/packages/release/bioc/html/destiny.html) and from the [Slingshot vignette](https://www.bioconductor.org/packages/devel/bioc/vignettes/slingshot/inst/doc/slingshot.html).
+
+2. https://broadinstitute.github.io/2019_scWorkshop/functional-pseudotime-analysis.html
+
+3. http://cole-trapnell-lab.github.io/monocle-release/docs/#constructing-single-cell-trajectories
